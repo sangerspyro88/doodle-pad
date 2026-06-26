@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Doodle Pad</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #1a1a2e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    font-family: system-ui, sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  #canvas {
+    cursor: crosshair;
+    display: block;
+    border-radius: 12px;
+  }
+
+  #toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 18px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 40px;
+    margin-top: 14px;
+    backdrop-filter: blur(10px);
+  }
+
+  .swatch {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform 0.15s, border-color 0.15s;
+  }
+  .swatch:hover { transform: scale(1.2); }
+  .swatch.active { border-color: white; transform: scale(1.2); }
+
+  .sep { width: 1px; height: 22px; background: rgba(255,255,255,0.2); }
+
+  label {
+    color: rgba(255,255,255,0.6);
+    font-size: 12px;
+  }
+
+  input[type=range] {
+    width: 80px;
+    accent-color: white;
+    cursor: pointer;
+  }
+
+  button {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: rgba(255,255,255,0.7);
+    font-size: 12px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover { background: rgba(255,255,255,0.2); color: white; }
+
+  #hint {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.3);
+    font-size: 13px;
+    pointer-events: none;
+    transition: opacity 1s;
+  }
+</style>
+</head>
+<body>
+
+<p id="hint">Draw anywhere — speed changes thickness and color brightness</p>
+<canvas id="canvas"></canvas>
+
+<div id="toolbar">
+  <div class="swatch active" style="background:#a78bfa" data-hue="270"></div>
+  <div class="swatch" style="background:#f472b6" data-hue="325"></div>
+  <div class="swatch" style="background:#38bdf8" data-hue="199"></div>
+  <div class="swatch" style="background:#34d399" data-hue="158"></div>
+  <div class="swatch" style="background:#fb923c" data-hue="25"></div>
+  <div class="swatch" style="background:#f9fafb" data-hue="0" data-sat="0"></div>
+
+  <div class="sep"></div>
+
+  <label>size</label>
+  <input type="range" id="sizeSlider" min="2" max="32" value="10">
+
+  <div class="sep"></div>
+
+  <button id="clearBtn">clear</button>
+  <button id="saveBtn">save PNG</button>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const W = Math.min(window.innerWidth - 40, 900);
+  const H = window.innerHeight - 120;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#0f0f1a';
+  ctx.fillRect(0, 0, W, H);
+}
+resize();
+
+let painting = false;
+let lastX = 0, lastY = 0;
+let lastTime = 0;
+let hue = 270;
+let sat = 100;
+let baseSize = 10;
+let hueShift = 0;
+
+function getPos(e) {
+  const r = canvas.getBoundingClientRect();
+  if (e.touches) {
+    return { x: e.touches[0].clientX - r.left, y: e.touches[0].clientY - r.top };
+  }
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+function draw(e) {
+  if (!painting) return;
+  e.preventDefault();
+
+  const { x, y } = getPos(e);
+  const now = performance.now();
+  const dt = Math.max(1, now - lastTime);
+  const dx = x - lastX;
+  const dy = y - lastY;
+  const speed = Math.sqrt(dx * dx + dy * dy) / dt;
+
+  const size = Math.max(1, baseSize - speed * 6);
+  const lightness = 50 + Math.min(speed * 200, 35);
+  hueShift = (hueShift + speed * 40) % 360;
+  const currentHue = sat === 0 ? 0 : (hue + hueShift) % 360;
+
+  ctx.beginPath();
+  ctx.moveTo(lastX, lastY);
+  ctx.lineTo(x, y);
+  ctx.strokeStyle = sat === 0
+    ? `hsl(0,0%,${lightness + 20}%)`
+    : `hsla(${currentHue},${sat}%,${lightness}%,0.85)`;
+  ctx.lineWidth = size;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+
+  lastX = x; lastY = y; lastTime = now;
+}
+
+function startDraw(e) {
+  painting = true;
+  const { x, y } = getPos(e);
+  lastX = x; lastY = y;
+  lastTime = performance.now();
+  hueShift = 0;
+  e.preventDefault();
+}
+
+function stopDraw() { painting = false; }
+
+canvas.addEventListener('mousedown', startDraw);
+canvas.addEventListener('mousemove', draw);
+canvas.addEventListener('mouseup', stopDraw);
+canvas.addEventListener('mouseleave', stopDraw);
+canvas.addEventListener('touchstart', startDraw, { passive: false });
+canvas.addEventListener('touchmove', draw, { passive: false });
+canvas.addEventListener('touchend', stopDraw);
+
+document.querySelectorAll('.swatch').forEach(s => {
+  s.addEventListener('click', () => {
+    document.querySelectorAll('.swatch').forEach(x => x.classList.remove('active'));
+    s.classList.add('active');
+    hue = parseInt(s.dataset.hue);
+    sat = s.dataset.sat !== undefined ? parseInt(s.dataset.sat) : 100;
+    hueShift = 0;
+  });
+});
+
+document.getElementById('sizeSlider').addEventListener('input', e => {
+  baseSize = parseInt(e.target.value);
+});
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  const W = parseInt(canvas.style.width);
+  const H = parseInt(canvas.style.height);
+  ctx.fillStyle = '#0f0f1a';
+  ctx.fillRect(0, 0, W, H);
+});
+
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const link = document.createElement('a');
+  link.download = 'doodle.png';
+  link.href = canvas.toDataURL();
+  link.click();
+});
+
+setTimeout(() => {
+  document.getElementById('hint').style.opacity = '0';
+}, 3500);
+
+window.addEventListener('resize', resize);
+</script>
+</body>
+</html>
